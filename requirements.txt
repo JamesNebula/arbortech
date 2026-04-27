@@ -5,6 +5,9 @@ click==8.3.3
 fastapi==0.136.1
 h11==0.16.0
 idna==3.13
+laspy==2.7.0
+lazrs==0.8.1
+numpy==2.4.4
 pydantic==2.13.3
 pydantic_core==2.46.3
 python-multipart==0.0.26
