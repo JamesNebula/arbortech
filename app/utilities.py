@@ -6,7 +6,9 @@ import os
 import shutil
 import hashlib
 import logging
+import traceback
 from fastapi import HTTPException
+from laspy.errors import LaspyException
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +60,14 @@ def read_laz(file, filename: str):
 
             return file_info
         
+        except (LaspyException) as e:
+            logger.warning(f"Invalid file format for {filename}: {e}")
+            raise HTTPException(status_code=422, detail="Invalid LAZ file format")
+
         except Exception as e:
             # Reveal the actual error for debugging
-            raise HTTPException(status_code=500, detail=f"Internal error: {e}")
+            logger.exception(f"Server error processing {filename}")
+            raise HTTPException(status_code=500, detail="Internal server error")
         
         finally:
             # Always clean up the temp file
