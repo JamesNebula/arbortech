@@ -4,11 +4,21 @@ import time
 import tempfile
 import os
 import shutil
+import hashlib
+import logging
 from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
+
+def compute_file_hash(file_path: str, chunk_size: int = 8192) -> str:
+    sha256 = hashlib.sha256()
+    with open(file_path, 'rb') as f:
+        while chunk := f.read(chunk_size):
+            sha256.update(chunk)
+    return sha256.hexdigest()
 
 def read_laz(file, filename: str):
     start = time.perf_counter()
-    
     # Create a temp file with .laz extension so laspy detects compression
     with tempfile.NamedTemporaryFile(delete=False, suffix=".laz") as tmp:
         try:
@@ -17,7 +27,9 @@ def read_laz(file, filename: str):
             file.file.seek(0)
             shutil.copyfileobj(file.file, tmp)
             tmp_path = tmp.name
-            
+
+            file_hash = compute_file_hash(tmp_path)
+            logger.info(f"Ingesting {filename} | hash={file_hash}")
             # Now open with laspy
             with laspy.open(tmp_path) as las:
                 file_info = {}
@@ -41,6 +53,8 @@ def read_laz(file, filename: str):
                 end = time.perf_counter()
                 processing_time = float(end - start) * 1000 # Convert to ms
                 file_info['processing_time_ms'] = processing_time
+
+                logger.info(f"Processed {filename} | points={file_info['point_count']} time_ms={file_info['processing_time_ms']}")
 
             return file_info
         
