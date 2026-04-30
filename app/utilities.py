@@ -22,6 +22,17 @@ def compute_file_hash(file_path: str, chunk_size: int = HASH_CHUNK_SIZE) -> str:
             sha256.update(chunk)
     return sha256.hexdigest()
 
+def _extract_crs(header) -> Optional[str]:
+    try:
+        crs = header.parse_crs()
+        if crs and crs.to_epsg():
+            return str(crs.to_epsg())
+        logger.debug("No CRS found in header")
+        return None
+    except (AttributeError, ValueError) as e:
+        logger.debug(f"CRS extraction failed: {e}")
+        return None
+
 def read_laz(file: UploadFile, filename: str) -> dict:
     """Process a las/laz file and extract metadata.
     Args:
@@ -62,7 +73,7 @@ def read_laz(file: UploadFile, filename: str) -> dict:
                     "min_z": float(header.min[2]),
                     "max_z": float(header.max[2]),
                 },
-                "crs": str(crs.to_epsg()) if crs and crs.to_epsg() else None,
+                "crs": _extract_crs(header),
                 "processing_time_ms": float((time.perf_counter() - start) * 1000),
                 "file_hash_sha256": file_hash,
             }
