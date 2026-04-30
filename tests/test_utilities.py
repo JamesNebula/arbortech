@@ -48,7 +48,7 @@ def test_read_laz_valid_file(temp_dir):
     assert result["filename"] == "test.las"
     assert result["point_count"] == 3
     assert "bounding_box" in result
-    assert result["crs"] == "Unknown"
+    assert result["crs"] is None
     assert "processing_time_ms" in result
     assert isinstance(result["processing_time_ms"], float)
 
@@ -75,8 +75,8 @@ def test_read_laz_invalid_format(temp_dir):
             read_laz(fake_upload, "fake.las")
         
         # Step 4: Assert the exception has the correct status code
-        assert exc_info.value.status_code == 422
-        assert "Invalid LAZ file format" in exc_info.value.detail
+        assert exc_info.value.status_code == 400
+        assert "Corrupted or invalid LAS file header" in exc_info.value.detail
 
 def test_read_laz_corrupt_header(temp_dir):
     """Failure mode: LAS file with valid extension but truncated header → 422."""
@@ -101,5 +101,37 @@ def test_read_laz_corrupt_header(temp_dir):
             read_laz(fake_upload, "corrupt.las")
         
         # Step 4: Verify correct status code and generic detail
-        assert exc_info.value.status_code == 422
-        assert "Invalid LAZ file format" in exc_info.value.detail
+        assert exc_info.value.status_code == 400
+        assert "Corrupted or invalid LAS file header" in exc_info.value.detail
+
+@pytest.mark.parametrize(
+    "filename,content,expected_detail",
+    [
+        # Invalid extension: .txt renamed to .las
+        ("scan.txt.las", b"This is not a LAS file\n", "Corrupted or invalid LAS file header"),
+        # Corrupted header: truncated LAS signature
+        ("corrupt.las", b"LASF" + b"\x00" * 50, "Corrupted or invalid LAS file header"),
+    ],
+)
+def test_read_laz_edge_cases(temp_dir, filename, content, expected_detail):
+    """Parametrized edge-case tests: invalid extension or corrupted header → 400."""
+    
+    # Step 1: Write test content to temp file
+    test_file = temp_dir / filename
+    test_file.write_bytes(content)
+    
+    # Step 2: Create FakeUploadFile using BytesIO (as requested)
+    from io import BytesIO
+    with open(test_file, "rb") as f:
+        fake_upload = FakeUploadFile(
+            file_obj=BytesIO(content),  # ← BytesIO per employer request
+            filename=filename,
+            size=len(content)
+        )
+        
+        # Step 3: Assert HTTPException with correct status and detail
+        with pytest.raises(HTTPException) as exc_info:
+            read_laz(fake_upload, filename)
+        
+        assert exc_info.value.status_code == 400
+        assert expected_detail in exc_info.value.detail
