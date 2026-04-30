@@ -1,75 +1,82 @@
-import laspy
-import numpy as np
-import time
-import tempfile
-import os
-import shutil
 import hashlib
 import logging
-import traceback
-from fastapi import HTTPException
+import os
+import shutil
+import tempfile
+import time
+from typing import Optional
+
+import laspy
+import numpy as np
+from fastapi import HTTPException, UploadFile
 from laspy.errors import LaspyException
 
 logger = logging.getLogger(__name__)
 
-def compute_file_hash(file_path: str, chunk_size: int = 8192) -> str:
+HASH_CHUNK_SIZE = 8192
+
+def compute_file_hash(file_path: str, chunk_size: int = HASH_CHUNK_SIZE) -> str:
     sha256 = hashlib.sha256()
     with open(file_path, 'rb') as f:
         while chunk := f.read(chunk_size):
             sha256.update(chunk)
     return sha256.hexdigest()
 
-def read_laz(file, filename: str):
+def read_laz(file: UploadFile, filename: str) -> dict:
+    """Process a las/laz file and extract metadata.
+    Args:
+    file: FastAPI UploadFile object
+    filename: Original uploaded filename
+
+    returns: 
+    dict matching IngestResponse schema with extracted metadata
+    """
+
     start = time.perf_counter()
+    tmp_path: Optional[str] = None
     # Create a temp file with .laz extension so laspy detects compression
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".laz") as tmp:
-        try:
-            # Copy uploaded file content to the temp file
-            # We seek(0) to ensure we start from the beginning
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".laz") as tmp:
             file.file.seek(0)
             shutil.copyfileobj(file.file, tmp)
+            tmp.flush()
             tmp_path = tmp.name
 
-            file_hash = compute_file_hash(tmp_path)
-            logger.info(f"Ingesting {filename} | hash={file_hash}")
-            # Now open with laspy
-            with laspy.open(tmp_path) as las:
-                file_info = {}
-                file_info['filename'] = filename
-                file_info['point_count'] = las.header.point_count
-                # Convert version to string for Pydantic compatibility
-                file_info['file_version'] = str(las.header.version) 
-                file_info['point_format_id'] = las.header.point_format.id
-                file_info['bounding_box'] = [
-                    np.array(las.header.min).tolist(), 
-                    np.array(las.header.max).tolist()
-                ]
-                crs = las.header.parse_crs()
+        file_hash = compute_file_hash(tmp_path)
+        logger.info(f"Ingesting {filename} | hash={file_hash}")
 
-                if crs:
-                    epsg = crs.to_epsg()
-                    file_info['crs'] = str(epsg)
-                else:
-                    file_info['crs'] = "Unknown"
-                
-                end = time.perf_counter()
-                processing_time = float(end - start) * 1000 # Convert to ms
-                file_info['processing_time_ms'] = processing_time
+        with laspy.open(tmp_path) as las:
+            header = las.header
+            crs = header.parse_crs()
 
-                logger.info(f"Processed {filename} | points={file_info['point_count']} time_ms={file_info['processing_time_ms']}")
-
-            return file_info
-        
-        except (LaspyException) as e:
-            logger.warning(f"Invalid file format for {filename}: {e}")
-            raise HTTPException(status_code=422, detail="Invalid LAZ file format")
-
-        except Exception as e:
-            # Reveal the actual error for debugging
-            logger.exception(f"Server error processing {filename}")
-            raise HTTPException(status_code=500, detail="Internal server error")
-        
-        finally:
-            # Always clean up the temp file
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+            return {
+                "filename": filename,
+                "point_count": header.point_count,
+                "file_version": str(header.version),
+                "point_format_id": header.point_format.id,
+                "bounding_box": {
+                    "min_x": float(header.min[0]),
+                    "max_x": float(header.max[0]),
+                    "min_y": float(header.min[1]),
+                    "max_y": float(header.max[1]),
+                    "min_z": float(header.min[2]),
+                    "max_z": float(header.max[2]),
+                },
+                "crs": str(crs.to_epsg()) if crs and crs.to_epsg() else None,
+                "processing_time_ms": float((time.perf_counter() - start) * 1000),
+                "file_hash_sha256": file_hash,
+            }
+    except LaspyException as e:
+        # Client sent invalid/corrupt LAS file → 400 per spec
+        logger.warning(f"Invalid LAS file {filename}: {e}")
+        raise HTTPException(status_code=400, detail="Corrupted or invalid LAS file header")
+    
+    except Exception as e:
+        # Unexpected server error: log stack trace internally, return generic 500
+        logger.exception(f"Unexpected error processing {filename}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    
+    finally:
+        # Always clean up temp file to avoid disk leaks
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
