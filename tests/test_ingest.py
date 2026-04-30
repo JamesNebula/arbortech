@@ -47,7 +47,7 @@ def test_ingest_file_too_large(client, small_file_limit):
     response = client.post("/api/v1/ingest", files=files)
     
     # Assert spec-compliant response
-    assert response.status_code == 413
+    assert response.status_code == 400
     assert "File too large" in response.json()["detail"]
 
 def test_max_file_size_constant():

@@ -33,7 +33,7 @@ def _extract_crs(header) -> Optional[str]:
         logger.debug(f"CRS extraction failed: {e}")
         return None
 
-def read_laz(file: UploadFile, filename: str) -> dict:
+def process_lidar_file(file: UploadFile, filename: str) -> dict:
     """Process a las/laz file and extract metadata.
     Args:
     file: FastAPI UploadFile object

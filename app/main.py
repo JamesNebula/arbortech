@@ -3,7 +3,7 @@ import logging
 
 from .logging_config import setup_logging
 from .schemas import IngestResponse
-from .utilities import read_laz
+from .utilities import process_lidar_file
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -23,11 +23,11 @@ async def upload_file(file: UploadFile = File(...)) -> IngestResponse:
     
     if file.size is not None and file.size > MAX_FILE_SIZE:
         logger.warning(f"Rejected {file.filename}: size: {file.size} exceeds limit {MAX_FILE_SIZE}")
-        raise HTTPException(status_code=413, detail="File too large, Maximum size is 500 MB.")
+        raise HTTPException(status_code=400, detail="File too large, Maximum size is 500 MB.")
 
     # Process file (header integrity, metadata extraction)
     try:
-        result = read_laz(file, file.filename)
+        result = process_lidar_file(file, file.filename)
         logger.info(
             f"Ingest success: {result['filename']} | "
             f"points={result['point_count']} | "

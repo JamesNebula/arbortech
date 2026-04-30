@@ -3,7 +3,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch
 from fastapi import UploadFile, HTTPException
-from app.utilities import read_laz
+from app.utilities import process_lidar_file
 from .fixtures.create_test_laz import create_minimal_laz
 import tempfile
 import shutil
@@ -42,7 +42,7 @@ def test_read_laz_valid_file(temp_dir):
         )
         
         # Step 3: Call the function directly
-        result = read_laz(fake_upload, "test.las")
+        result = process_lidar_file(fake_upload, "test.las")
     
     # Step 4: Assert expected output
     assert result["filename"] == "test.las"
@@ -72,7 +72,7 @@ def test_read_laz_invalid_format(temp_dir):
         # Hint: pytest.raises()
         
         with pytest.raises(HTTPException) as exc_info:
-            read_laz(fake_upload, "fake.las")
+            process_lidar_file(fake_upload, "fake.las")
         
         # Step 4: Assert the exception has the correct status code
         assert exc_info.value.status_code == 400
@@ -98,7 +98,7 @@ def test_read_laz_corrupt_header(temp_dir):
         
         # Step 3: Assert read_laz() raises HTTPException(422)
         with pytest.raises(HTTPException) as exc_info:
-            read_laz(fake_upload, "corrupt.las")
+            process_lidar_file(fake_upload, "corrupt.las")
         
         # Step 4: Verify correct status code and generic detail
         assert exc_info.value.status_code == 400
@@ -131,7 +131,7 @@ def test_read_laz_edge_cases(temp_dir, filename, content, expected_detail):
         
         # Step 3: Assert HTTPException with correct status and detail
         with pytest.raises(HTTPException) as exc_info:
-            read_laz(fake_upload, filename)
+            process_lidar_file(fake_upload, filename)
         
         assert exc_info.value.status_code == 400
         assert expected_detail in exc_info.value.detail
