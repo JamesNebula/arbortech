@@ -22,14 +22,14 @@ def test_ingest_valid_file(client, temp_dir):
         "file": ("test.las", BytesIO(file_content), "application/octet-stream")
         }
     #POST to /ingest
-    response = client.post("/ingest", files=files)
+    response = client.post("/api/v1/ingest", files=files)
     logger.info(f"DEBUG TEST: response status: {response.status_code}")
 
     # assert success
     assert response.status_code == 200
 
     # assert response schema
-    data = response.json
+    data = response.json()
     assert data['filename'] == 'test.las'
     assert data['point_count'] == 3
     assert "bounding_box" in data
@@ -44,7 +44,7 @@ def test_ingest_file_too_large(client, small_file_limit):
     files = {"file": ("large.laz", fake_content, "application/octet-stream")}
     
     # POST to /ingest
-    response = client.post("/ingest", files=files)
+    response = client.post("/api/v1/ingest", files=files)
     
     # Assert spec-compliant response
     assert response.status_code == 413
