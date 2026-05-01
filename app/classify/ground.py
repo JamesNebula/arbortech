@@ -4,7 +4,7 @@ import time
 import numpy as np
 import laspy
 import logging
-
+import open3d as o3d
 from pathlib import Path as FilePath
 from pydantic import BaseModel
 from fastapi import APIRouter, UploadFile, File, HTTPException
@@ -59,7 +59,7 @@ async def classify_ground(
         f"num_iterations={num_iterations}" 
     )
 
-    # Need to add point extraction, scaling, sampling and open3d RANSAC
+    # point extraction, scaling, sampling and open3d RANSAC
     tmp_path = None
     start_time = time.perf_counter()
 
@@ -105,7 +105,57 @@ async def classify_ground(
             f"Point extraction complete | processed={points_processed} | "
             f"Shape={points.shape} | hash={file_hash[:16]}..."
         )
-        return {"Message": "Extraction and scaling verified. RANSAC next"}
+        
+        # Open3D Conversion and RANSAC
+        # Convert numpy array to open3d point cloud
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(points.astype(np.float64))
+
+        # Run RANSAC plane segmentation
+        # segment_plane returns (plane_model, inliers)
+        # plane_model = [a, b, c, d] for ax + by + cz + d = 0
+        # inliers = o3d.utility.IntVector of point indices
+        plane_model, inliers = pcd.segment_plane(
+            distance_threshold=distance_threshold,
+            ransac_n=ransac_n,
+            num_iterations=num_iterations
+        )
+
+        # Convert inliers to Python list of ints
+        ground_point_indices = list(inliers)
+        ground_point_count = len(ground_point_indices)
+
+        # Calculate inlier ratio for logging
+        inlier_ratio = ground_point_count / points_processed if points_processed > 0 else 0.0
+        if inlier_ratio < 0.1:
+            logger.warning(
+                f"Low inlier ratio: {inlier_ratio:.2%} on {file.filename}."
+                f"May indicate non-planar terrain or aggressive RANSAC params."
+            )
+
+        # Calculate processing Time
+        processing_time_ms = (time.perf_counter() - start_time) * 1000
+
+        # Log success summary
+        logger.info(
+            f"Ground classification complete | "
+            f"file={file.filename} | "
+            f"processed={points_processed} | "
+            f"ground_points={ground_point_count} | "
+            f"inlier_ratio={inlier_ratio:.2%} | "
+            f"time_ms={processing_time_ms:.2f} | "
+            f"plane_model=[{plane_model[0]:.3f}, {plane_model[1]:.3f}, {plane_model[2]:.3f}, {plane_model[3]:.3f}]"
+        )
+
+        # Response
+        return GroundResponse(
+            ground_point_count=ground_point_count,
+            ground_point_indices=ground_point_indices,
+            plane_model=[float(v) for v in plane_model],
+            points_processed=points_processed,
+            processing_time_ms=processing_time_ms,
+            file_hash=file_hash
+        )
 
     except laspy.errors.LaspyException as e:
         logger.warning(f"Failed to parse LAS file {file.filename}: {e}")
