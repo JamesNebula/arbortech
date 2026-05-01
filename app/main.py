@@ -5,15 +5,13 @@ from .logging_config import setup_logging
 from .schemas import IngestResponse
 from .utilities import process_lidar_file
 from .classify.ground import router as classify_router
+from .config import MAX_INGEST_SIZE, ALLOWED_EXTENSIONS
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="LiDAR Ingestion Service", version="1.0.0")
 app.include_router(classify_router)
-
-MAX_FILE_SIZE = 500 * 1024 * 1024
-ALLOWED_EXTENSIONS = {".las", ".laz"}
 
 @app.post("/api/v1/ingest", response_model=IngestResponse, status_code=200)
 async def upload_file(file: UploadFile = File(...)) -> IngestResponse:
@@ -23,7 +21,7 @@ async def upload_file(file: UploadFile = File(...)) -> IngestResponse:
         logger.warning(f"Rejected {file.filename}: Invalid Extension '.{ext}'")
         raise HTTPException(status_code=400, detail="Invalid file extension. Must be .las or .laz")
     
-    if file.size is not None and file.size > MAX_FILE_SIZE:
+    if file.size is not None and file.size > MAX_INGEST_SIZE:
         logger.warning(f"Rejected {file.filename}: size: {file.size} exceeds limit {MAX_FILE_SIZE}")
         raise HTTPException(status_code=400, detail="File too large, Maximum size is 500 MB.")
 
