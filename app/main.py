@@ -4,11 +4,13 @@ import logging
 from .logging_config import setup_logging
 from .schemas import IngestResponse
 from .utilities import process_lidar_file
+from .classify.ground import router as classify_router
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="LiDAR Ingestion Service", version="1.0.0")
+app.include_router(classify_router)
 
 MAX_FILE_SIZE = 500 * 1024 * 1024
 ALLOWED_EXTENSIONS = {".las", ".laz"}
