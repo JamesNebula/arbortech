@@ -95,4 +95,44 @@ curl -X POST http://localhost:8000/api/v1/ingest \
 rm large.laz
 ```
 
+## Ground Classification Endpoint
 
+### `POST /api/v1/classify/ground`
+
+Classify ground points in a LiDAR point cloud using RANSAC plane segmentation.
+
+**Request**
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `file` | `multipart/form-data` | — | `.las` or `.laz` file, ≤ 200 MB |
+| `distance_threshold` | `float` | `0.3` | Max distance (meters) for a point to be considered an inlier |
+| `ransac_n` | `int` | `3` | Minimum points to define a plane (must be ≥ 3) |
+| `num_iterations` | `int` | `100` | RANSAC iterations (higher = more accurate, slower) |
+
+**Success Response (200 OK)**
+```json
+{
+  "ground_point_count": 20520,
+  "ground_point_indices": [0, 3, 7, ...],
+  "plane_model": [0.002, -0.001, 1.000, 5492.601],
+  "points_processed": 100000,
+  "processing_time_ms": 691.30,
+  "file_hash": "3ce4d90961fbc530..."
+}
+```
+
+## Test with curl
+```bash
+# Valid terrain data
+curl -X POST http://localhost:8000/api/v1/classify/ground \
+  -F "file=@/path/to/terrain.laz"
+
+# Custom RANSAC params (stricter threshold)
+curl -X POST "http://localhost:8000/api/v1/classify/ground?distance_threshold=0.1&ransac_n=3&num_iterations=200" \
+  -F "file=@/path/to/terrain.laz"
+
+# Invalid param (expect 400)
+curl -X POST "http://localhost:8000/api/v1/classify/ground?distance_threshold=-1" \
+  -F "file=@/path/to/terrain.laz"
+# Response: {"detail":"distance_threshold must be > 0"}
+```

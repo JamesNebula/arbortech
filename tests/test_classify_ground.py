@@ -190,3 +190,59 @@ def test_classify_ground_invalid_ransac_params(
     # Assert error message contains expected detail
     data = response.json()
     assert expected_detail in data["detail"], f"Expected '{expected_detail}' in '{data['detail']}'"
+
+def test_classify_ground_non_planar_noise(tmp_path):
+    """Edge case: random noise cloud → returns plane model, low inliers, no crash."""
+    
+    # Generate 1,000 points with completely random XYZ (no planar structure)
+    n_points = 1000
+    rng = np.random.default_rng(999)  # Different seed for variety
+    
+    x = rng.uniform(0, 100, n_points)
+    y = rng.uniform(0, 100, n_points)
+    z = rng.uniform(0, 100, n_points)  # Fully random Z — no ground plane
+    
+    header = laspy.LasHeader(version="1.4", point_format=6)
+    header.scales = np.array([0.01, 0.01, 0.01])
+    header.offsets = np.array([0.0, 0.0, 0.0])
+    
+    las = laspy.LasData(header)
+    las.x = x
+    las.y = y
+    las.z = z
+    
+    noise_file = tmp_path / "random_noise.las"
+    las.write(str(noise_file))
+    
+    # Upload and process
+    with open(noise_file, "rb") as f:
+        files = {"file": ("random_noise.las", f, "application/octet-stream")}
+        response = client.post("/api/v1/classify/ground", files=files)
+    
+    # Assert success (200, not crash)
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+    
+    # Parse response
+    data = response.json()
+    
+    # Validate schema fields exist and have correct types
+    assert isinstance(data["ground_point_count"], int)
+    assert isinstance(data["ground_point_indices"], list)
+    assert len(data["ground_point_indices"]) == data["ground_point_count"]
+    
+    assert isinstance(data["plane_model"], list) and len(data["plane_model"]) == 4
+    assert all(isinstance(v, (int, float)) for v in data["plane_model"])
+    
+    assert isinstance(data["points_processed"], int) and data["points_processed"] > 0
+    assert isinstance(data["processing_time_ms"], (int, float)) and data["processing_time_ms"] >= 0
+    assert isinstance(data["file_hash"], str) and len(data["file_hash"]) == 64
+    
+    # Key assertion: inlier ratio should be LOW for random noise
+    # RANSAC will still fit *a* plane, but very few points will be inliers
+    inlier_ratio = data["ground_point_count"] / data["points_processed"] if data["points_processed"] > 0 else 0
+    
+    # We expect < 10% inliers for pure noise (tunable threshold)
+    assert inlier_ratio < 0.10, f"Expected low inlier ratio for noise, got {inlier_ratio:.2%}"
+    
+    # Log for visibility (helps debug if test fails)
+    print(f"Noise cloud result: {data['ground_point_count']}/{data['points_processed']} inliers ({inlier_ratio:.2%})")
